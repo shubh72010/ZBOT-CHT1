@@ -1,11 +1,6 @@
 // services/firebase.js
 const admin = require('firebase-admin');
 
-/**
- * Initializes Firebase Admin SDK.
- * It's crucial that `FIREBASE_SERVICE_ACCOUNT_KEY_JSON` is correctly set
- * as an environment variable in production.
- */
 const initializeFirebase = () => {
     if (admin.apps.length === 0) {
         try {
@@ -21,19 +16,18 @@ const initializeFirebase = () => {
             console.log('Firebase Admin SDK initialized successfully.');
         } catch (error) {
             console.error('Error initializing Firebase Admin SDK:', error.message);
-            process.exit(1); // Exit if Firebase init fails, as it's critical
+            process.exit(1);
         }
     }
 };
 
-// Call initialization immediately
 initializeFirebase();
 
 const db = admin.firestore();
 
 /**
  * Stores an encrypted Groq API key for a specific user.
- * @param {string} userId - The unique identifier for the user.
+ * @param {string} userId - The unique identifier for the user (Discord User ID).
  * @param {string} encryptedGroqApiKey - The encrypted Groq API key.
  * @returns {Promise<void>}
  */
@@ -53,7 +47,7 @@ const storeGroqApiKey = async (userId, encryptedGroqApiKey) => {
 
 /**
  * Retrieves the encrypted Groq API key for a specific user.
- * @param {string} userId - The unique identifier for the user.
+ * @param {string} userId - The unique identifier for the user (Discord User ID).
  * @returns {Promise<string|null>} The encrypted Groq API key or null if not found.
  */
 const getEncryptedGroqApiKey = async (userId) => {
@@ -73,50 +67,35 @@ const getEncryptedGroqApiKey = async (userId) => {
 };
 
 /**
- * Stores an encrypted Discord Bot Token for a specific user.
- * @param {string} userId - The unique identifier for the user.
- * @param {string} encryptedDiscordBotToken - The encrypted Discord Bot Token.
- * @returns {Promise<void>}
+ * Deletes the Groq API key for a specific user.
+ * @param {string} userId - The unique identifier for the user (Discord User ID).
+ * @returns {Promise<boolean>} True if key was present and deleted, false otherwise.
  */
-const storeDiscordBotToken = async (userId, encryptedDiscordBotToken) => {
-    try {
-        const userRef = db.collection('users').doc(userId);
-        await userRef.set({
-            discordBotToken: encryptedDiscordBotToken,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        console.log(`Discord Bot Token stored for user: ${userId}`);
-    } catch (error) {
-        console.error(`Error storing Discord Bot Token for user ${userId}:`, error);
-        throw new Error('Failed to store Discord Bot Token.');
-    }
-};
-
-/**
- * Retrieves the encrypted Discord Bot Token for a specific user.
- * @param {string} userId - The unique identifier for the user.
- * @returns {Promise<string|null>} The encrypted Discord Bot Token or null if not found.
- */
-const getEncryptedDiscordBotToken = async (userId) => {
+const deleteGroqApiKey = async (userId) => { // NEW FUNCTION
     try {
         const userRef = db.collection('users').doc(userId);
         const doc = await userRef.get();
-        if (!doc.exists) {
-            console.log(`No Discord Bot Token found for user: ${userId}`);
-            return null;
+        if (!doc.exists || !doc.data().groqApiKey) {
+            console.log(`No Groq API key found for user ${userId} to delete.`);
+            return false;
         }
-        const data = doc.data();
-        return data.discordBotToken || null;
+
+        await userRef.update({
+            groqApiKey: admin.firestore.FieldValue.delete(),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp() // Update timestamp
+        });
+        console.log(`Groq API key deleted for user: ${userId}`);
+        return true;
     } catch (error) {
-        console.error(`Error retrieving Discord Bot Token for user ${userId}:`, error);
-        throw new Error('Failed to retrieve Discord Bot Token.');
+        console.error(`Error deleting Groq API key for user ${userId}:`, error);
+        throw new Error('Failed to delete Groq API key.');
     }
 };
+
 
 module.exports = {
     db,
     storeGroqApiKey,
     getEncryptedGroqApiKey,
-    storeDiscordBotToken,
-    getEncryptedDiscordBotToken
+    deleteGroqApiKey // Export the new function
 };
