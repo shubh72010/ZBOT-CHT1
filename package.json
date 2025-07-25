@@ -8,7 +8,7 @@
     "dev": "nodemon app.js"
   },
   "keywords": ["discord", "bot", "ai", "groq", "firebase", "render"],
-  "author": "Your Name",
+  "author": "Flakious",
   "license": "ISC",
   "dependencies": {
     "crypto": "^1.0.1",
