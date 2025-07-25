@@ -1,140 +1,46 @@
 // app.js
-require('dotenv').config();
+require('dotenv').config(); // Load environment variables from .env file (for local development)
 const express = require('express');
-const { encrypt, decrypt } = require('./utils/encryption');
-const {
-    storeGroqApiKey,
-    getEncryptedGroqApiKey,
-    storeDiscordBotToken,
-    getEncryptedDiscordBotToken
-} = require('./services/firebase');
-const { startAllUserBots, stopUserBot } = require('./botManager'); // Import bot management functions
+const { startBot } = require('./bot'); // Import the function to start the single Discord bot client
 
 const app = express();
+// The PORT environment variable is automatically set by Render.
+// For local development, it will default to 3000 if not set in your .env file.
 const PORT = process.env.PORT || 3000;
 
+// Middleware to parse JSON request bodies
 app.use(express.json());
 
+// --- API Endpoints ---
+
+// Healthcheck endpoint for Render (and general monitoring)
+// This endpoint checks if the Express server is running and responsive.
 app.get('/healthcheck', (req, res) => {
+    // Respond with a 200 OK status and a simple message
     res.status(200).send('ZBØTS Backend is healthy!');
 });
 
-// Endpoint to store Groq API Key
-app.post('/api/groq-key', async (req, res) => {
-    const { userId, groqApiKey } = req.body;
+// IMPORTANT:
+// - There are NO API endpoints here for users to provide Discord Bot Tokens.
+//   ZBØTS uses a single, developer-provided Discord Bot Token.
+// - There are NO API endpoints here for users to provide Groq API Keys.
+//   Users will provide their Groq API keys directly via the Discord bot's /setkey command.
+// - All sensitive key storage and retrieval is handled internally by the bot.js
+//   and services/firebase.js, using encryption.
 
-    if (!userId || !groqApiKey) {
-        return res.status(400).json({ error: 'userId and groqApiKey are required.' });
-    }
+// If you decide to build a separate web dashboard in the future,
+// and it needs to interact with user data in Firebase, you would add
+// authenticated API endpoints here, ensuring they are properly secured.
 
-    try {
-        const encryptedKey = encrypt(groqApiKey);
-        await storeGroqApiKey(userId, encryptedKey);
-        res.status(200).json({ message: 'Groq API key stored successfully.' });
-    } catch (error) {
-        console.error('Failed to store Groq API key:', error);
-        res.status(500).json({ error: 'Failed to store Groq API key.' });
-    }
-});
+// --- Server and Bot Initialization ---
 
-// Endpoint to retrieve/decrypt Groq API Key (for internal backend use, e.g., botManager)
-app.get('/api/groq-key/:userId', async (req, res) => {
-    const { userId } = req.params;
-    if (!userId) {
-        return res.status(400).json({ error: 'userId is required.' });
-    }
-    try {
-        const encryptedKey = await getEncryptedGroqApiKey(userId);
-        if (!encryptedKey) {
-            return res.status(404).json({ error: 'Groq API key not found for this user.' });
-        }
-        const decryptedKey = decrypt(encryptedKey);
-        res.status(200).json({ message: 'Groq API key retrieved and decrypted.', decryptedKey });
-    } catch (error) {
-        console.error('Failed to retrieve or decrypt Groq API key:', error);
-        res.status(500).json({ error: 'Failed to retrieve or decrypt Groq API key.' });
-    }
-});
-
-// Endpoint to store Discord Bot Token
-app.post('/api/discord-bot-token', async (req, res) => {
-    const { userId, discordBotToken } = req.body;
-
-    if (!userId || !discordBotToken) {
-        return res.status(400).json({ error: 'userId and discordBotToken are required.' });
-    }
-
-    try {
-        const encryptedToken = encrypt(discordBotToken);
-        await storeDiscordBotToken(userId, encryptedToken);
-        res.status(200).json({ message: 'Discord Bot Token stored successfully.' });
-    } catch (error) {
-        console.error('Failed to store Discord Bot Token:', error);
-        res.status(500).json({ error: 'Failed to store Discord Bot Token.' });
-    }
-});
-
-// Endpoint to retrieve/decrypt Discord Bot Token (for internal backend use by botManager)
-app.get('/api/discord-bot-token/:userId', async (req, res) => {
-    const { userId } = req.params;
-    if (!userId) {
-        return res.status(400).json({ error: 'userId is required.' });
-    }
-    try {
-        const encryptedToken = await getEncryptedDiscordBotToken(userId);
-        if (!encryptedToken) {
-            return res.status(404).json({ error: 'Discord Bot Token not found for this user.' });
-        }
-        const decryptedToken = decrypt(encryptedToken);
-        res.status(200).json({ message: 'Discord Bot Token retrieved and decrypted.', decryptedToken });
-    } catch (error) {
-        console.error('Failed to retrieve or decrypt Discord Bot Token:', error);
-        res.status(500).json({ error: 'Failed to retrieve or decrypt Discord Bot Token.' });
-    }
-});
-
-
-// NEW: Endpoint to trigger bot restart for a user (e.g., after config change)
-app.post('/api/bot/restart/:userId', async (req, res) => {
-    const { userId } = req.params;
-    if (!userId) {
-        return res.status(400).json({ error: 'userId is required.' });
-    }
-    try {
-        const success = await initializeUserBot(userId); // Re-initialize (which also handles stopping if exists)
-        if (success) {
-            res.status(200).json({ message: `Bot for user ${userId} restarted successfully.` });
-        } else {
-            res.status(404).json({ error: `Could not restart bot for user ${userId}. Token might be missing or invalid.` });
-        }
-    } catch (error) {
-        console.error(`Error restarting bot for user ${userId}:`, error);
-        res.status(500).json({ error: 'Failed to restart bot.' });
-    }
-});
-
-// NEW: Endpoint to stop a user's bot
-app.post('/api/bot/stop/:userId', async (req, res) => {
-    const { userId } = req.params;
-    if (!userId) {
-        return res.status(400).json({ error: 'userId is required.' });
-    }
-    const success = stopUserBot(userId);
-    if (success) {
-        res.status(200).json({ message: `Bot for user ${userId} stopped successfully.` });
-    } else {
-        res.status(404).json({ error: `No active bot found for user ${userId} to stop.` });
-    }
-});
-
-
-// Start the Express server
+// Start the Express server and the Discord bot
 app.listen(PORT, async () => {
+    // Log that the Express server has started and is listening on the specified port
     console.log(`ZBØTS Backend listening on port ${PORT}`);
     console.log(`Healthcheck available at http://localhost:${PORT}/healthcheck`);
 
-    // IMPORTANT: Start all user bots when the server initializes
-    // In a production environment with multiple instances or restarts,
-    // you might need a more robust bot management strategy (e.g., using Redis for state).
-    await startAllUserBots();
+    // Asynchronously start the Discord bot client.
+    // This will attempt to log in your ZBOT CHT1 bot to Discord.
+    await startBot();
 });
