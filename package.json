@@ -1,0 +1,26 @@
+{
+  "name": "zbots-backend",
+  "version": "1.0.0",
+  "description": "ZBØTS Universal Bot Brain Backend & Discord Bot Manager",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "keywords": ["discord", "bot", "ai", "groq", "firebase", "render"],
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "crypto": "^1.0.1",
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
