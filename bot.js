@@ -1,11 +1,10 @@
 // bot.js
 const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
-const { storeGroqApiKey, getEncryptedGroqApiKey, deleteGroqApiKey } = require('./services/firebase'); // Import new function
+const { storeGroqApiKey, getEncryptedGroqApiKey, deleteGroqApiKey } = require('./services/firebase');
 const { decrypt, encrypt } = require('./utils/encryption');
 
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
 if (!TOKEN) {
     console.error('DISCORD_BOT_TOKEN environment variable is not set. Bot cannot log in.');
@@ -16,8 +15,8 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
         GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.MessageContent, // Keep this intent
     ],
     partials: [
         Partials.Channel,
@@ -34,6 +33,36 @@ client.once('ready', () => {
     console.log(`ZBOT CHT1 is online! Logged in as ${client.user.tag}`);
     client.user.setActivity('ZBØTS Online!', { type: 3 });
 });
+
+// --- UPDATED: Message Listener for Mentions and "ping" ---
+client.on('messageCreate', async message => {
+    // Ignore messages from bots to prevent infinite loops
+    if (message.author.bot) return;
+
+    const botMentioned = message.mentions.users.has(client.user.id);
+
+    // If the bot is mentioned OR if it's a DM to the bot
+    if (botMentioned || message.channel.type === 1 /* DM Channel */) {
+        // Remove bot mentions from the message content for cleaner processing
+        const contentWithoutMention = message.content.replace(`<@${client.user.id}>`, '').replace(`<@!${client.user.id}>`, '').trim().toLowerCase();
+
+        if (contentWithoutMention === 'ping') {
+            await message.reply('Pong!');
+            console.log(`Responded to "@bot ping" from ${message.author.tag} (${message.author.id})`);
+        } else if (contentWithoutMention.length === 0) {
+            // If only the bot was mentioned (e.g., just "@bot")
+            await message.reply(`Hello there, ${message.author}! How can I assist you?`);
+            console.log(`Responded to mention from ${message.author.tag} (${message.author.id})`);
+        } else {
+            // If bot was mentioned with other text (e.g., "@bot tell me a joke")
+            // You could potentially route this to a general AI response later.
+            await message.reply(`I heard you, ${message.author}! You said: "${contentWithoutMention}".`);
+            console.log(`Responded to mention with content from ${message.author.tag} (${message.author.id})`);
+        }
+    }
+});
+// --- END UPDATED: Message Listener ---
+
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
@@ -60,7 +89,7 @@ client.on('interactionCreate', async interaction => {
             }
             break;
 
-        case 'removekey': // NEW COMMAND HANDLER
+        case 'removekey':
             try {
                 const wasDeleted = await deleteGroqApiKey(userId);
                 if (wasDeleted) {
@@ -86,8 +115,8 @@ client.on('interactionCreate', async interaction => {
                 }
                 const decryptedGroqKey = decrypt(encryptedGroqKey);
 
-                // --- INTEGRATE GROQ API HERE ---
-                const aiResponse = `(AI Response for ${interaction.user.tag}): You asked: "${prompt}". Your Groq key is active!`;
+                // --- INTEGRATE GROQ API HERE (THIS IS THE NEXT BIG STEP!) ---
+                const aiResponse = `(AI Response for ${interaction.user.tag}): You asked: "${prompt}". Your Groq key is active! This is where Groq API call will go.`;
 
                 await interaction.editReply(aiResponse);
 
