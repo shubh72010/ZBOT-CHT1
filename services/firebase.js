@@ -1,101 +1,94 @@
 // services/firebase.js
 const admin = require('firebase-admin');
 
-const initializeFirebase = () => {
-    if (admin.apps.length === 0) {
-        try {
-            const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON;
-            if (!serviceAccountJson) {
-                throw new Error('FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set.');
-            }
-            const serviceAccount = JSON.parse(serviceAccountJson);
+// Ensure FIREBASE_SERVICE_ACCOUNT_KEY_JSON is set
+if (!process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON) {
+    console.error('FIREBASE_SERVICE_ACCOUNT_KEY_JSON environment variable is not set. Firebase Admin SDK cannot be initialized.');
+    process.exit(1); // Exit if the critical key is missing
+}
 
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount)
-            });
-            console.log('Firebase Admin SDK initialized successfully.');
-        } catch (error) {
-            console.error('Error initializing Firebase Admin SDK:', error.message);
-            process.exit(1);
-        }
-    }
-};
+// Parse the service account key JSON string
+let serviceAccount;
+try {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_JSON);
+} catch (error) {
+    console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_KEY_JSON:', error);
+    process.exit(1); // Exit if JSON is malformed
+}
 
-initializeFirebase();
+// Initialize Firebase Admin SDK if not already initialized
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log('Firebase Admin SDK initialized successfully.');
+}
 
 const db = admin.firestore();
 
 /**
- * Stores an encrypted Groq API key for a specific user.
- * @param {string} userId - The unique identifier for the user (Discord User ID).
- * @param {string} encryptedGroqApiKey - The encrypted Groq API key.
- * @returns {Promise<void>}
+ * Stores an encrypted Groq API key for a specific Discord guild.
+ * @param {string} guildId The ID of the Discord guild.
+ * @param {string} encryptedGroqApiKey The encrypted Groq API key.
  */
-const storeGroqApiKey = async (userId, encryptedGroqApiKey) => {
+const storeGroqApiKey = async (guildId, encryptedGroqApiKey) => {
     try {
-        const userRef = db.collection('users').doc(userId);
-        await userRef.set({
-            groqApiKey: encryptedGroqApiKey,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        console.log(`Groq API key stored for user: ${userId}`);
+        // Store the key in a 'config' subcollection within the 'guild' document
+        await db.collection('guilds').doc(guildId).collection('config').doc('groq').set({ encryptedGroqApiKey });
+        console.log(`Groq API key stored for guild ${guildId}`);
     } catch (error) {
-        console.error(`Error storing Groq API key for user ${userId}:`, error);
-        throw new Error('Failed to store Groq API key.');
+        console.error(`Error storing Groq API key for guild ${guildId}:`, error);
+        throw error; // Re-throw to be handled by the caller
     }
 };
 
 /**
- * Retrieves the encrypted Groq API key for a specific user.
- * @param {string} userId - The unique identifier for the user (Discord User ID).
+ * Retrieves the encrypted Groq API key for a specific Discord guild.
+ * @param {string} guildId The ID of the Discord guild.
  * @returns {Promise<string|null>} The encrypted Groq API key or null if not found.
  */
-const getEncryptedGroqApiKey = async (userId) => {
+const getEncryptedGroqApiKey = async (guildId) => {
     try {
-        const userRef = db.collection('users').doc(userId);
-        const doc = await userRef.get();
-        if (!doc.exists) {
-            console.log(`No Groq API key found for user: ${userId}`);
+        const docRef = db.collection('guilds').doc(guildId).collection('config').doc('groq');
+        const doc = await docRef.get();
+        if (doc.exists) {
+            console.log(`Groq API key retrieved for guild ${guildId}`);
+            return doc.data().encryptedGroqApiKey;
+        } else {
+            console.log(`No Groq API key found for guild ${guildId}`);
             return null;
         }
-        const data = doc.data();
-        return data.groqApiKey || null;
     } catch (error) {
-        console.error(`Error retrieving Groq API key for user ${userId}:`, error);
-        throw new Error('Failed to retrieve Groq API key.');
+        console.error(`Error retrieving Groq API key for guild ${guildId}:`, error);
+        throw error;
     }
 };
 
 /**
- * Deletes the Groq API key for a specific user.
- * @param {string} userId - The unique identifier for the user (Discord User ID).
- * @returns {Promise<boolean>} True if key was present and deleted, false otherwise.
+ * Deletes the encrypted Groq API key for a specific Discord guild.
+ * @param {string} guildId The ID of the Discord guild.
+ * @returns {Promise<boolean>} True if the key was deleted, false otherwise.
  */
-const deleteGroqApiKey = async (userId) => { // NEW FUNCTION
+const deleteGroqApiKey = async (guildId) => {
     try {
-        const userRef = db.collection('users').doc(userId);
-        const doc = await userRef.get();
-        if (!doc.exists || !doc.data().groqApiKey) {
-            console.log(`No Groq API key found for user ${userId} to delete.`);
+        const docRef = db.collection('guilds').doc(guildId).collection('config').doc('groq');
+        const doc = await docRef.get();
+        if (doc.exists) {
+            await docRef.delete();
+            console.log(`Groq API key deleted for guild ${guildId}`);
+            return true;
+        } else {
+            console.log(`No Groq API key found to delete for guild ${guildId}`);
             return false;
         }
-
-        await userRef.update({
-            groqApiKey: admin.firestore.FieldValue.delete(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp() // Update timestamp
-        });
-        console.log(`Groq API key deleted for user: ${userId}`);
-        return true;
     } catch (error) {
-        console.error(`Error deleting Groq API key for user ${userId}:`, error);
-        throw new Error('Failed to delete Groq API key.');
+        console.error(`Error deleting Groq API key for guild ${guildId}:`, error);
+        throw error;
     }
 };
 
-
 module.exports = {
-    db,
     storeGroqApiKey,
     getEncryptedGroqApiKey,
-    deleteGroqApiKey // Export the new function
+    deleteGroqApiKey
 };
