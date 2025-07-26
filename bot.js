@@ -1,5 +1,5 @@
 // bot.js
-const { Client, GatewayIntentBits, Partials, Collection, PermissionsBitField } = require('discord.js'); // Added PermissionsBitField
+const { Client, GatewayIntentBits, Partials, Collection, PermissionsBitField } = require('discord.js');
 const { storeGroqApiKey, getEncryptedGroqApiKey, deleteGroqApiKey } = require('./services/firebase');
 const { decrypt, encrypt } = require('./utils/encryption');
 const Groq = require('groq-sdk');
@@ -38,16 +38,16 @@ client.once('ready', () => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // We only care about messages in guilds or DMs to the bot
+    // We only care about messages in guilds (servers) or DMs to the bot
     if (!message.guild && message.channel.type !== 1 /* DM Channel */) return;
 
     const botMentioned = message.mentions.users.has(client.user.id);
     const guildId = message.guild ? message.guild.id : null; // Get guildId if in a guild
 
-    // Only proceed if bot is mentioned in a guild, or if it's a DM
+    // Only proceed if bot is mentioned in a guild, or if it's a DM (though AI is guild-only)
     if (botMentioned || message.channel.type === 1) {
         const contentWithoutMention = message.content.replace(`<@${client.user.id}>`, '').replace(`<@!${client.user.id}>`, '').trim();
-        const userId = message.author.id; // Still good to have userId for logging or potential per-user features later
+        const userId = message.author.id; // Still useful for logging or potential per-user features
 
         // For DM channels, we cannot use a guild-specific key.
         // For simplicity, we'll currently restrict AI features to guilds.
@@ -55,6 +55,7 @@ client.on('messageCreate', async message => {
             return await message.reply("AI features are currently only available in Discord servers (guilds), not direct messages.");
         }
 
+        // Immediately acknowledge with "Thinking..."
         const replyMessage = await message.reply('Thinking...');
 
         if (contentWithoutMention.length === 0 || contentWithoutMention.toLowerCase() === 'ping') {
@@ -123,49 +124,60 @@ client.on('interactionCreate', async interaction => {
 
     switch (commandName) {
         case 'setkey':
+            // Defer the reply immediately to prevent "Application did not respond"
+            // Make it ephemeral so only the user who ran the command sees the "thinking..." message
+            await interaction.deferReply({ ephemeral: true });
+
             if (!hasAdminPermissions) {
-                return await interaction.reply({ content: 'You must be an administrator to set the Groq API key for this server.', ephemeral: true });
+                // Use editReply now since we deferred
+                return await interaction.editReply({ content: 'You must be an administrator to set the Groq API key for this server.' });
             }
 
             const groqApiKey = interaction.options.getString('key');
 
             if (!groqApiKey.startsWith('gsk_') || groqApiKey.length < 20) {
-                return interaction.reply({ content: 'That does not look like a valid Groq API key. Please double check it. Groq keys usually start with `gsk_`.', ephemeral: true });
+                // Use editReply now since we deferred
+                return interaction.editReply({ content: 'That does not look like a valid Groq API key. Please double check it. Groq keys usually start with `gsk_`.' });
             }
 
             try {
                 const encryptedKey = encrypt(groqApiKey);
                 await storeGroqApiKey(guildId, encryptedKey); // Pass guildId
-                await interaction.reply({ content: 'The Groq API key has been securely stored for this server! AI features are now enabled for everyone here.', ephemeral: true });
+                // Use editReply now since we deferred
+                await interaction.editReply({ content: 'The Groq API key has been securely stored for this server! AI features are now enabled for everyone here.' });
                 console.log(`Groq API key set by ${interaction.user.tag} (${userId}) for guild ${guildId}`);
             } catch (error) {
                 console.error(`Error processing /setkey command for guild ${guildId} by user ${userId}:`, error);
-                await interaction.reply({ content: 'There was an error storing the key. Please try again later.', ephemeral: true });
+                // Use editReply now since we deferred
+                await interaction.editReply({ content: 'There was an error storing the key. Please try again later.' });
             }
             break;
 
         case 'removekey':
+            // We can defer this one too, though it's usually faster
+            await interaction.deferReply({ ephemeral: true });
+
             if (!hasAdminPermissions) {
-                return await interaction.reply({ content: 'You must be an administrator to remove the Groq API key for this server.', ephemeral: true });
+                return await interaction.editReply({ content: 'You must be an administrator to remove the Groq API key for this server.' });
             }
 
             try {
                 const wasDeleted = await deleteGroqApiKey(guildId); // Pass guildId
                 if (wasDeleted) {
-                    await interaction.reply({ content: 'The Groq API key has been successfully removed for this server. AI features are now disabled for everyone here.', ephemeral: true });
+                    await interaction.editReply({ content: 'The Groq API key has been successfully removed for this server. AI features are now disabled for everyone here.' });
                     console.log(`Groq API key removed by ${interaction.user.tag} (${userId}) for guild ${guildId}`);
                 } else {
-                    await interaction.reply({ content: 'No Groq API key was found to remove for this server.', ephemeral: true });
+                    await interaction.editReply({ content: 'No Groq API key was found to remove for this server.', ephemeral: true });
                 }
             } catch (error) {
                 console.error(`Error processing /removekey command for guild ${guildId} by user ${userId}:`, error);
-                await interaction.reply({ content: 'There was an error removing the key. Please try again later.', ephemeral: true });
+                await interaction.editReply({ content: 'There was an error removing the key. Please try again later.' });
             }
             break;
 
         case 'chatbot':
             const prompt = interaction.options.getString('prompt');
-            await interaction.deferReply();
+            await interaction.deferReply(); // Already deferring here
 
             try {
                 // Retrieve key using guildId
