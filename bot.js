@@ -2,6 +2,7 @@
 const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js');
 const { storeGroqApiKey, getEncryptedGroqApiKey, deleteGroqApiKey } = require('./services/firebase');
 const { decrypt, encrypt } = require('./utils/encryption');
+const Groq = require('groq-sdk'); // <-- NEW: Import Groq SDK
 
 const TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -16,7 +17,7 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.MessageContent, // Keep this intent
+        GatewayIntentBits.MessageContent,
     ],
     partials: [
         Partials.Channel,
@@ -34,34 +35,73 @@ client.once('ready', () => {
     client.user.setActivity('ZBØTS Online!', { type: 3 });
 });
 
-// --- UPDATED: Message Listener for Mentions and "ping" ---
 client.on('messageCreate', async message => {
-    // Ignore messages from bots to prevent infinite loops
     if (message.author.bot) return;
 
     const botMentioned = message.mentions.users.has(client.user.id);
 
-    // If the bot is mentioned OR if it's a DM to the bot
     if (botMentioned || message.channel.type === 1 /* DM Channel */) {
         // Remove bot mentions from the message content for cleaner processing
-        const contentWithoutMention = message.content.replace(`<@${client.user.id}>`, '').replace(`<@!${client.user.id}>`, '').trim().toLowerCase();
+        const contentWithoutMention = message.content.replace(`<@${client.user.id}>`, '').replace(`<@!${client.user.id}>`, '').trim(); // Removed .toLowerCase() for AI context
+        const userId = message.author.id;
 
-        if (contentWithoutMention === 'ping') {
-            await message.reply('Pong!');
-            console.log(`Responded to "@bot ping" from ${message.author.tag} (${message.author.id})`);
-        } else if (contentWithoutMention.length === 0) {
-            // If only the bot was mentioned (e.g., just "@bot")
-            await message.reply(`Hello there, ${message.author}! How can I assist you?`);
-            console.log(`Responded to mention from ${message.author.tag} (${message.author.id})`);
-        } else {
-            // If bot was mentioned with other text (e.g., "@bot tell me a joke")
-            // You could potentially route this to a general AI response later.
-            await message.reply(`I heard you, ${message.author}! You said: "${contentWithoutMention}".`);
-            console.log(`Responded to mention with content from ${message.author.tag} (${message.author.id})`);
+        // Immediately defer the reply to show "Bot is thinking..."
+        // Discord interactions (including message replies) have a limited time to respond.
+        // For AI, it's best to defer if the response might take a moment.
+        const replyMessage = await message.reply('Thinking...'); // Initial "Thinking..." message
+
+        if (contentWithoutMention.length === 0 || contentWithoutMention.toLowerCase() === 'ping') {
+            // Handle simple mentions or "@bot ping"
+            await replyMessage.edit('Pong!'); // Edit the "Thinking..." message to "Pong!"
+            console.log(`Responded to "${contentWithoutMention}" from ${message.author.tag} (${message.author.id})`);
+            return; // Stop here if it's just ping/empty mention
         }
+
+        // --- NEW: Groq API Integration for Mentions ---
+        try {
+            const encryptedGroqKey = await getEncryptedGroqApiKey(userId);
+            if (!encryptedGroqKey) {
+                return await replyMessage.edit("You need to set your Groq API key first using `/setkey` to use AI features.");
+            }
+            const decryptedGroqKey = decrypt(encryptedGroqKey);
+
+            // Initialize Groq client with the decrypted key
+            const groq = new Groq({ apiKey: decryptedGroqKey });
+
+            // Make the API call to Groq
+            const chatCompletion = await groq.chat.completions.create({
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are ZBØTS CHT1, a helpful and friendly AI assistant. Provide concise and helpful answers.',
+                    },
+                    {
+                        role: 'user',
+                        content: contentWithoutMention, // Use the cleaned user message as the prompt
+                    },
+                ],
+                model: 'llama3-8b-8192', // Or 'mixtral-8x7b-32768' or 'llama3-70b-8192'
+                                          // Check Groq docs for available models.
+                temperature: 0.7, // Adjust creativity (0.0 to 1.0)
+                max_tokens: 1000, // Max tokens for AI's response
+            });
+
+            const aiResponse = chatCompletion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
+            await replyMessage.edit(aiResponse); // Edit the "Thinking..." message with AI response
+            console.log(`AI responded to mention from ${message.author.tag} (${userId}): "${contentWithoutMention}"`);
+
+        } catch (error) {
+            console.error(`Error with AI response for user ${userId} (mention):`, error);
+            // Check for specific error types if needed, e.g., invalid API key
+            if (error.response && error.response.status === 401) {
+                await replyMessage.edit('It looks like your Groq API key is invalid. Please set it again using `/setkey`.');
+            } else {
+                await replyMessage.edit('There was an error communicating with the AI. Please try again later.');
+            }
+        }
+        // --- END NEW: Groq API Integration for Mentions ---
     }
 });
-// --- END UPDATED: Message Listener ---
 
 
 client.on('interactionCreate', async interaction => {
@@ -106,7 +146,7 @@ client.on('interactionCreate', async interaction => {
 
         case 'chatbot':
             const prompt = interaction.options.getString('prompt');
-            await interaction.deferReply();
+            await interaction.deferReply(); // Defer for slash command too
 
             try {
                 const encryptedGroqKey = await getEncryptedGroqApiKey(userId);
@@ -115,14 +155,35 @@ client.on('interactionCreate', async interaction => {
                 }
                 const decryptedGroqKey = decrypt(encryptedGroqKey);
 
-                // --- INTEGRATE GROQ API HERE (THIS IS THE NEXT BIG STEP!) ---
-                const aiResponse = `(AI Response for ${interaction.user.tag}): You asked: "${prompt}". Your Groq key is active! This is where Groq API call will go.`;
+                // --- INTEGRATE GROQ API HERE (SAME LOGIC AS ABOVE) ---
+                const groq = new Groq({ apiKey: decryptedGroqKey });
 
+                const chatCompletion = await groq.chat.completions.create({
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are ZBØTS CHT1, a helpful and friendly AI assistant. Provide concise and helpful answers.',
+                        },
+                        {
+                            role: 'user',
+                            content: prompt, // Use the prompt from the slash command
+                        },
+                    ],
+                    model: 'llama3-8b-8192', // Or your preferred model
+                    temperature: 0.7,
+                    max_tokens: 1000,
+                });
+
+                const aiResponse = chatCompletion.choices[0]?.message?.content || 'Sorry, I could not generate a response.';
                 await interaction.editReply(aiResponse);
 
             } catch (error) {
                 console.error(`Error with chatbot command for user ${userId}:`, error);
-                await interaction.editReply('There was an error communicating with the AI. Please ensure your Groq API key is valid.');
+                if (error.response && error.response.status === 401) {
+                    await interaction.editReply('It looks like your Groq API key is invalid. Please set it again using `/setkey`.');
+                } else {
+                    await interaction.editReply('There was an error communicating with the AI. Please ensure your Groq API key is valid.');
+                }
             }
             break;
 
