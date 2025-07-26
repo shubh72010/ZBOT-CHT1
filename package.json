@@ -1,21 +1,29 @@
 {
-  "name": "zbots-backend",
+  "name": "zbots-cht1-backend",
   "version": "1.0.0",
-  "description": "ZBØTS ai chatbot",
+  "description": "ZBØTS CHT1 - A universal AI bot brain powered by Discord, Firebase, and Groq.",
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon app.js",
+    "deploy-commands": "node deploy-commands.js"
   },
-  "keywords": ["discord", "bot", "ai", "groq", "firebase", "render"],
+  "keywords": [
+    "discord",
+    "bot",
+    "ai",
+    "groq",
+    "firebase",
+    "render"
+  ],
   "author": "Flakious",
   "license": "ISC",
   "dependencies": {
-    "crypto": "^1.0.1",
     "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "firebase-admin": "^12.2.0"
+    "firebase-admin": "^12.2.0",
+    "groq-sdk": "^1.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
